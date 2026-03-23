@@ -4,12 +4,50 @@ import { useWidgetParams, useSubmission, Speak } from "@moly-edu/widget-sdk";
 import type { WidgetParams, WidgetAnswer } from "../definition";
 import { useState, useMemo } from "react";
 
+interface NumberItem {
+  id: string;
+  value: number;
+}
+
 export function WidgetComponent() {
   const params = useWidgetParams<WidgetParams>();
-  const correctAnswer = params.num1 + params.num2;
+
+  const { numbers, correctOrder } = useMemo(() => {
+    const items: number[] = [];
+    const seen = new Set<number>();
+
+    while (items.length < params.numberOfItems) {
+      const val = Math.floor(
+        Math.random() * (params.rangeSettings.maxValue - params.rangeSettings.minValue + 1)
+      ) + params.rangeSettings.minValue;
+
+      if (!seen.has(val)) {
+        seen.add(val);
+        items.push(val);
+      }
+    }
+
+    const sorted =
+      params.orderDirection === "ascending"
+        ? [...items].sort((a, b) => a - b)
+        : [...items].sort((a, b) => b - a);
+
+    const shuffled = [...items].sort(() => Math.random() - 0.5);
+
+    const numberItems: NumberItem[] = shuffled.map((val) => ({
+      id: `num-${val}-${Math.random().toString(36).substring(7)}`,
+      value: val,
+    }));
+
+    const correctOrderStr = sorted.map((v) => {
+      const item = numberItems.find((n) => n.value === v);
+      return item?.id;
+    }).join(",");
+
+    return { numbers: numberItems, correctOrder: correctOrderStr };
+  }, [params.numberOfItems, params.rangeSettings.minValue, params.rangeSettings.maxValue, params.orderDirection]);
 
   const {
-    answer,
     setAnswer,
     result,
     submit,
@@ -18,7 +56,7 @@ export function WidgetComponent() {
     isSubmitting,
   } = useSubmission<WidgetAnswer>({
     evaluate: (ans) => {
-      const isCorrect = parseInt(ans.value, 10) === correctAnswer;
+      const isCorrect = ans.order === correctOrder;
       return {
         isCorrect,
         score: isCorrect ? 100 : 0,
@@ -27,280 +65,138 @@ export function WidgetComponent() {
     },
   });
 
-  if (params.mode === "fill") {
-    return (
-      <FillMode
-        params={params}
-        correctAnswer={correctAnswer}
-        answer={answer}
-        setAnswer={setAnswer}
-        result={result}
-        submit={submit}
-        isLocked={isLocked}
-        canSubmit={canSubmit}
-        isSubmitting={isSubmitting}
-      />
-    );
-  }
+  const [items, setItems] = useState<NumberItem[]>(numbers);
+  const [draggedItem, setDraggedItem] = useState<NumberItem | null>(null);
 
-  return (
-    <ChoiceMode
-      params={params}
-      correctAnswer={correctAnswer}
-      answer={answer}
-      setAnswer={setAnswer}
-      result={result}
-      submit={submit}
-      isLocked={isLocked}
-      canSubmit={canSubmit}
-      isSubmitting={isSubmitting}
-    />
-  );
-}
-
-// ============================================================
-// Shared props
-// ============================================================
-interface ModeProps {
-  params: WidgetParams;
-  correctAnswer: number;
-  answer: WidgetAnswer | undefined;
-  setAnswer: (a: WidgetAnswer) => void;
-  result: { isCorrect: boolean; score: number; maxScore: number } | null;
-  submit: () => Promise<void>;
-  isLocked: boolean;
-  canSubmit: boolean;
-  isSubmitting: boolean;
-}
-
-// ============================================================
-// MODE: FILL (điền đáp án)
-// ============================================================
-function FillMode({
-  params,
-  correctAnswer,
-  answer,
-  setAnswer,
-  result,
-  submit,
-  isLocked,
-  canSubmit,
-  isSubmitting,
-}: ModeProps) {
-  const [inputValue, setInputValue] = useState("");
-
-  const handleChange = (val: string) => {
+  const handleDragStart = (item: NumberItem) => {
     if (isLocked) return;
-    // Chỉ cho nhập số
-    const cleaned = val.replace(/[^0-9-]/g, "");
-    setInputValue(cleaned);
-    if (cleaned) {
-      setAnswer({ value: cleaned });
-    }
+    setDraggedItem(item);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && canSubmit) submit();
+  const handleDragOver = (e: React.DragEvent, targetItem: NumberItem) => {
+    e.preventDefault();
+    if (isLocked || !draggedItem || draggedItem.id === targetItem.id) return;
+
+    const draggedIdx = items.findIndex((i) => i.id === draggedItem.id);
+    const targetIdx = items.findIndex((i) => i.id === targetItem.id);
+
+    const newItems = [...items];
+    newItems.splice(draggedIdx, 1);
+    newItems.splice(targetIdx, 0, draggedItem);
+
+    setItems(newItems);
   };
+
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+    const orderStr = items.map((i) => i.id).join(",");
+    setAnswer({ order: orderStr });
+  };
+
+  const handleTouchStart = (item: NumberItem) => {
+    if (isLocked) return;
+    setDraggedItem(item);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault();
+  };
+
+  const handleTouchEnd = (targetItem: NumberItem) => {
+    if (isLocked || !draggedItem || draggedItem.id === targetItem.id) {
+      setDraggedItem(null);
+      return;
+    }
+
+    const draggedIdx = items.findIndex((i) => i.id === draggedItem.id);
+    const targetIdx = items.findIndex((i) => i.id === targetItem.id);
+
+    const newItems = [...items];
+    newItems.splice(draggedIdx, 1);
+    newItems.splice(targetIdx, 0, draggedItem);
+
+    setItems(newItems);
+    setDraggedItem(null);
+
+    const orderStr = newItems.map((i) => i.id).join(",");
+    setAnswer({ order: orderStr });
+  };
+
+  const orderText =
+    params.orderDirection === "ascending" ? "tăng dần" : "giảm dần";
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-linear-to-b from-amber-50 to-orange-50">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-blue-50 to-cyan-50">
+      <div className="w-full max-w-lg">
         {isLocked && <ReviewBadge />}
 
         <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
           <div className="text-center mb-6">
-            <div className="inline-block px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-medium mb-3">
-              ✏️ Điền đáp án
+            <div className="inline-block px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium mb-3">
+              Sắp xếp số
             </div>
             <h2 className="text-lg font-bold text-slate-800">
               <Speak>{params.question}</Speak>
             </h2>
+            <p className="text-sm text-slate-600 mt-2">
+              <Speak text={`Sắp xếp theo thứ tự ${orderText}`}>
+                Thứ tự: <strong>{orderText}</strong>
+              </Speak>
+            </p>
           </div>
 
-          {/* Phép tính */}
-          <div className="flex items-center justify-center gap-4 mb-8">
-            <Speak text={`${params.num1} cộng ${params.num2} bằng bao nhiêu?`}>
-              <span className="text-5xl font-bold text-slate-800">
-                {params.num1}
-              </span>
-              <span className="text-4xl font-bold text-amber-500 mx-2">+</span>
-              <span className="text-5xl font-bold text-slate-800">
-                {params.num2}
-              </span>
-              <span className="text-4xl font-bold text-slate-400 mx-2">=</span>
-              <span className="text-5xl font-bold text-amber-600">?</span>
-            </Speak>
-          </div>
-
-          {/* Input */}
-          <input
-            type="text"
-            inputMode="numeric"
-            value={isLocked ? (answer?.value ?? "") : inputValue}
-            onChange={(e) => handleChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isLocked}
-            placeholder={
-              params.fillSettings.showPlaceholder
-                ? params.fillSettings.placeholder
-                : undefined
-            }
-            className="w-full text-center text-3xl font-bold py-4 px-6 border-2 border-slate-200 rounded-xl 
-              focus:border-amber-400 focus:outline-none transition-colors
-              disabled:bg-slate-50 disabled:text-slate-500"
-          />
-
-          {/* Submit */}
-          {!isLocked && (
-            <button
-              onClick={submit}
-              disabled={!canSubmit || isSubmitting}
-              className="w-full mt-4 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 disabled:cursor-not-allowed 
-                text-white font-semibold py-3 px-6 rounded-xl transition-colors"
-            >
-              {isSubmitting ? "Đang nộp..." : "Nộp bài"}
-            </button>
-          )}
-
-          {/* Feedback */}
-          <Feedback
-            result={result}
-            isLocked={isLocked}
-            params={params}
-            correctAnswer={correctAnswer}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// MODE: CHOICE (chọn đáp án)
-// ============================================================
-function ChoiceMode({
-  params,
-  correctAnswer,
-  answer,
-  setAnswer,
-  result,
-  submit,
-  isLocked,
-  canSubmit,
-  isSubmitting,
-}: ModeProps) {
-  // Tạo danh sách đáp án
-  const options = useMemo(() => {
-    const count = params.choiceSettings.numberOfOptions;
-    const opts = new Set<number>();
-    opts.add(correctAnswer);
-
-    // Tạo đáp án sai gần đúng
-    while (opts.size < count) {
-      const offset = Math.floor(Math.random() * 20) - 10;
-      const wrong = correctAnswer + offset;
-      if (wrong > 0 && wrong !== correctAnswer) {
-        opts.add(wrong);
-      }
-    }
-
-    const arr = Array.from(opts);
-    if (params.choiceSettings.shuffleOptions) {
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-      }
-    }
-    return arr;
-  }, [
-    correctAnswer,
-    params.choiceSettings.numberOfOptions,
-    params.choiceSettings.shuffleOptions,
-  ]);
-
-  const selectedValue = answer?.value ? parseInt(answer.value, 10) : null;
-
-  const handleSelect = (val: number) => {
-    if (isLocked) return;
-    setAnswer({ value: String(val) });
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-linear-to-b from-emerald-50 to-teal-50">
-      <div className="w-full max-w-md">
-        {isLocked && <ReviewBadge />}
-
-        <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
-          <div className="text-center mb-6">
-            <div className="inline-block px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium mb-3">
-              🎯 Chọn đáp án
-            </div>
-            <h2 className="text-lg font-bold text-slate-800">
-              <Speak>{params.question}</Speak>
-            </h2>
-          </div>
-
-          {/* Phép tính */}
-          <div className="flex items-center justify-center gap-4 mb-8">
-            <Speak text={`${params.num1} cộng ${params.num2} bằng bao nhiêu?`}>
-              <span className="text-5xl font-bold text-slate-800">
-                {params.num1}
-              </span>
-              <span className="text-4xl font-bold text-emerald-500 mx-2">
-                +
-              </span>
-              <span className="text-5xl font-bold text-slate-800">
-                {params.num2}
-              </span>
-              <span className="text-4xl font-bold text-slate-400 mx-2">=</span>
-              <span className="text-5xl font-bold text-emerald-600">?</span>
-            </Speak>
-          </div>
-
-          {/* Options grid */}
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            {options.map((val) => {
-              const isSelected = selectedValue === val;
+          <div className="space-y-3 mb-6">
+            {items.map((item) => {
+              const isDragging = draggedItem?.id === item.id;
               return (
-                <button
-                  key={val}
-                  onClick={() => handleSelect(val)}
-                  disabled={isLocked}
+                <div
+                  key={item.id}
+                  draggable={!isLocked}
+                  onDragStart={() => handleDragStart(item)}
+                  onDragOver={(e) => handleDragOver(e, item)}
+                  onDragEnd={handleDragEnd}
+                  onTouchStart={() => handleTouchStart(item)}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={() => handleTouchEnd(item)}
                   className={`
-                    py-4 rounded-xl text-2xl font-bold transition-all border-2
+                    flex items-center justify-center
+                    py-4 px-6 rounded-xl text-3xl font-bold
+                    border-2 transition-all
                     ${
-                      isSelected
-                        ? "bg-emerald-500 text-white border-emerald-600 scale-105 shadow-md"
-                        : "bg-white text-slate-700 border-slate-200 hover:border-emerald-300 hover:bg-emerald-50"
+                      isDragging
+                        ? "opacity-50 scale-95 border-blue-400 bg-blue-50"
+                        : "opacity-100 scale-100 border-slate-300 bg-white"
                     }
-                    ${isLocked ? "cursor-default" : "cursor-pointer"}
+                    ${
+                      isLocked
+                        ? "cursor-default"
+                        : "cursor-move hover:border-blue-400 hover:shadow-md active:scale-95"
+                    }
                   `}
                 >
-                  {val}
-                </button>
+                  <span className="text-slate-800">{item.value}</span>
+                </div>
               );
             })}
           </div>
 
-          {/* Submit */}
           {!isLocked && (
             <button
               onClick={submit}
               disabled={!canSubmit || isSubmitting}
-              className="w-full mt-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-300 disabled:cursor-not-allowed 
+              className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-slate-300 disabled:cursor-not-allowed
                 text-white font-semibold py-3 px-6 rounded-xl transition-colors"
             >
               {isSubmitting ? "Đang nộp..." : "Nộp bài"}
             </button>
           )}
 
-          {/* Feedback */}
           <Feedback
             result={result}
             isLocked={isLocked}
             params={params}
-            correctAnswer={correctAnswer}
+            correctOrder={correctOrder}
+            numbers={numbers}
           />
         </div>
       </div>
@@ -308,14 +204,11 @@ function ChoiceMode({
   );
 }
 
-// ============================================================
-// Shared components
-// ============================================================
 function ReviewBadge() {
   return (
     <div className="mb-4 text-center">
       <span className="inline-block px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-        📋 Chế độ xem lại
+        Chế độ xem lại
       </span>
     </div>
   );
@@ -325,15 +218,22 @@ function Feedback({
   result,
   isLocked,
   params,
-  correctAnswer,
+  correctOrder,
+  numbers,
 }: {
   result: { isCorrect: boolean } | null;
   isLocked: boolean;
   params: WidgetParams;
-  correctAnswer: number;
+  correctOrder: string;
+  numbers: NumberItem[];
 }) {
   if (!result || !isLocked) return null;
   if (!params.feedback.showFeedback) return null;
+
+  const correctValues = correctOrder.split(",").map((id) => {
+    const item = numbers.find((n) => n.id === id);
+    return item?.value;
+  });
 
   return (
     <div
@@ -356,8 +256,8 @@ function Feedback({
         </Speak>
       </div>
       {!result.isCorrect && (
-        <div className="text-sm text-slate-500 mt-1">
-          Đáp án đúng: <strong>{correctAnswer}</strong>
+        <div className="text-sm text-slate-500 mt-2">
+          Thứ tự đúng: <strong>{correctValues.join(", ")}</strong>
         </div>
       )}
     </div>

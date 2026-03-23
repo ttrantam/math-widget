@@ -9,62 +9,49 @@ import {
 
 export const widgetDefinition = defineWidget({
   parameters: {
-    // ---- Mode switch ----
-    mode: param
-      .select(["fill", "choice"] as const, "fill")
-      .label("Giao diện")
-      .description("fill = Điền đáp án, choice = Chọn đáp án")
+    question: param
+      .string("Sắp xếp các số sau theo thứ tự tăng dần:")
+      .label("Đề bài"),
+
+    orderDirection: param
+      .select(["ascending", "descending"] as const, "ascending")
+      .label("Thứ tự sắp xếp")
+      .description("ascending = Tăng dần, descending = Giảm dần")
       .random(),
 
-    // ---- Chung cho cả 2 mode ----
-    question: param.string("Tính kết quả phép cộng sau:").label("Đề bài"),
+    numberOfItems: param
+      .number(5)
+      .label("Số lượng phần tử")
+      .min(3)
+      .max(8)
+      .random(),
 
-    num1: param.number(0).label("Số thứ nhất").min(1).max(999).random(),
-    num2: param.number(0).label("Số thứ hai").min(1).max(999).random(),
+    rangeSettings: folder("Phạm vi số", {
+      minValue: param.number(1).label("Giá trị nhỏ nhất").min(0).max(100),
+      maxValue: param.number(50).label("Giá trị lớn nhất").min(1).max(100),
+    }).expanded(false),
 
-    // ---- Riêng mode FILL ----
-    fillSettings: folder("Cài đặt - Điền đáp án", {
-      showPlaceholder: param.boolean(true).label("Hiện placeholder"),
-      placeholder: param
-        .string("Nhập đáp án...")
-        .label("Placeholder")
-        .visibleIf(when("fillSettings.showPlaceholder").equals(true)),
-    })
-      .expanded(false)
-      .visibleIf(when("mode").equals("fill")),
-
-    // ---- Riêng mode CHOICE ----
-    choiceSettings: folder("Cài đặt - Chọn đáp án", {
-      numberOfOptions: param.number(4).label("Số lượng đáp án").min(2).max(6),
-      shuffleOptions: param.boolean(true).label("Xáo trộn đáp án"),
-    })
-      .expanded(false)
-      .visibleIf(when("mode").equals("choice")),
-
-    // ---- Phản hồi ----
     feedback: folder("Phản hồi", {
       showFeedback: param.boolean(true).label("Hiển thị phản hồi"),
       feedbackCorrect: param
-        .string("Chính xác! 🎉")
+        .string("Chính xác! Bạn đã sắp xếp đúng thứ tự!")
         .label("Khi đúng")
         .visibleIf(when("feedback.showFeedback").equals(true)),
       feedbackIncorrect: param
-        .string("Chưa đúng, thử lại nhé! 💪")
+        .string("Chưa đúng, hãy thử lại!")
         .label("Khi sai")
         .visibleIf(when("feedback.showFeedback").equals(true)),
     }).expanded(false),
   },
 
-  deriveDefaults: (defaults, { randomInt }) => {
-    const max = defaults.mode === "choice" ? 50 : 200;
+  deriveDefaults: (_defaults, { randomInt }) => {
     return {
-      num1: randomInt(1, max),
-      num2: randomInt(1, max),
+      numberOfItems: randomInt(3, 6),
     };
   },
 
   answer: {
-    value: param.string("").label("Đáp án"),
+    order: param.string("").label("Thứ tự sắp xếp (chuỗi ID phân cách bởi dấu phẩy)"),
   },
 });
 
